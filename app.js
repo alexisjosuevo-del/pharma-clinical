@@ -2,7 +2,8 @@ const state = {
   productos: [],
   filtrados: [],
   cart: [],
-  modoPrecio: 'venta'
+  modoPrecio: 'venta',
+  incluirImpuestos: true
 };
 
 const XLSX_URL = 'data/inventario.xlsx';
@@ -18,6 +19,8 @@ const cotizacionItems = document.getElementById('cotizacionItems');
 const subtotalEl = document.getElementById('subtotal');
 const ivaEl = document.getElementById('iva');
 const totalEl = document.getElementById('total');
+const ivaLabelEl = document.getElementById('ivaLabel');
+const sinImpuestosInput = document.getElementById('sinImpuestos');
 const statusBar = document.getElementById('statusBar');
 
 function syncDepartamentoPlaceholder(){
@@ -68,26 +71,31 @@ function normalizeProducto(row){
 async function loadProductos(){
   try {
     setStatus('Cargando catálogo...', 'warn');
-    state.productos = await loadFromExcel();
-    if (!state.productos.length) throw new Error('El archivo Excel no trae productos válidos.');
+    state.productos = await loadFromJSON();
+    if (!state.productos.length) throw new Error('El archivo JSON no trae productos válidos.');
     hydrateCatalog('Catálogo cargado correctamente.');
-  } catch (excelError) {
-    console.warn('Fallo Excel, intentando JSON...', excelError);
+  } catch (jsonError) {
+    console.warn('Fallo JSON, intentando Excel...', jsonError);
     try {
-      setStatus('No se pudo leer el archivo principal en este momento. Cargando respaldo del catálogo...', 'warn');
-      const res = await fetch(JSON_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
-      state.productos = raw.map(normalizeProducto).filter(Boolean);
-      hydrateCatalog('Se cargó el respaldo JSON del catálogo.');
-    } catch (jsonError) {
-      console.error(jsonError);
+      setStatus('No se pudo leer el catálogo principal en este momento. Cargando respaldo desde Excel...', 'warn');
+      state.productos = await loadFromExcel();
+      if (!state.productos.length) throw new Error('El archivo Excel no trae productos válidos.');
+      hydrateCatalog('Se cargó el respaldo Excel del catálogo.');
+    } catch (excelError) {
+      console.error(excelError);
       state.productos = [];
       state.filtrados = [];
       renderCatalog();
       setStatus('No se pudo cargar el catálogo ni su respaldo. Vuelve a subir el ZIP completo.', 'error');
     }
   }
+}
+
+async function loadFromJSON(){
+  const res = await fetch(JSON_URL, { cache:'no-store' });
+  if (!res.ok) throw new Error(`No se pudo abrir ${JSON_URL}: HTTP ${res.status}`);
+  const raw = await res.json();
+  return raw.map(normalizeProducto).filter(Boolean);
 }
 
 async function loadFromExcel(){
@@ -256,15 +264,22 @@ function renderCart(){
 
 function updateTotals(){
   const subtotal = state.cart.reduce((acc, item) => acc + (Number(item.cantidad || 0) * Number(item.precio || 0)), 0);
-  const iva = state.cart.reduce((acc, item) => {
+  const iva = state.incluirImpuestos ? state.cart.reduce((acc, item) => {
     const base = Number(item.cantidad || 0) * Number(item.precio || 0);
     const tasaIva = Number(item.iva || 0);
     return acc + (base * tasaIva);
-  }, 0);
+  }, 0) : 0;
   const total = subtotal + iva;
   subtotalEl.textContent = money(subtotal);
   ivaEl.textContent = money(iva);
+  if (ivaLabelEl) ivaLabelEl.textContent = state.incluirImpuestos ? 'IVA' : 'IVA no aplicado';
   totalEl.textContent = money(total);
+}
+
+function setIncluirImpuestos(incluir){
+  state.incluirImpuestos = Boolean(incluir);
+  if (sinImpuestosInput) sinImpuestosInput.checked = !state.incluirImpuestos;
+  renderCart();
 }
 
 function setModoPrecio(modo){
@@ -286,6 +301,7 @@ function exportJSON(){
       notas: document.getElementById('notasCotizacion').value
     },
     modoPrecio: state.modoPrecio,
+    incluirImpuestos: state.incluirImpuestos,
     productos: state.cart,
     subtotal: subtotalEl.textContent,
     iva: ivaEl.textContent,
@@ -336,13 +352,13 @@ function getQuoteData(){
   };
 
   const subtotal = state.cart.reduce((acc, item) => acc + (Number(item.cantidad || 0) * Number(item.precio || 0)), 0);
-  const iva = state.cart.reduce((acc, item) => {
+  const iva = state.incluirImpuestos ? state.cart.reduce((acc, item) => {
     const base = Number(item.cantidad || 0) * Number(item.precio || 0);
     return acc + (base * Number(item.iva || 0));
-  }, 0);
+  }, 0) : 0;
   const total = subtotal + iva;
 
-  return { cliente, subtotal, iva, total, items: state.cart.slice(), modoPrecio: state.modoPrecio };
+  return { cliente, subtotal, iva, total, items: state.cart.slice(), modoPrecio: state.modoPrecio, incluirImpuestos: state.incluirImpuestos };
 }
 
 function buildPdfFilename(clienteNombre, fecha){
@@ -356,7 +372,7 @@ function buildPdfMarkup(data){
     const cantidad = Number(item.cantidad || 0);
     const precio = Number(item.precio || 0);
     const base = cantidad * precio;
-    const ivaMonto = base * Number(item.iva || 0);
+    const ivaMonto = data.incluirImpuestos ? base * Number(item.iva || 0) : 0;
     const totalLinea = base + ivaMonto;
     const codigo = item.codigo ? `<div style="font-size:11px;color:#6b7d8b;margin-top:2px;">Código: ${item.codigo}</div>` : '';
     const tipo = item.tipo ? `<div style="font-size:11px;color:#7f8f9b;margin-top:4px;">${item.tipo}</div>` : '';
@@ -415,7 +431,7 @@ function buildPdfMarkup(data){
             <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;color:#425968;"><span>Modo de precio</span><strong style="color:#17384a;text-transform:capitalize;">${data.modoPrecio}</strong></div>
             <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;color:#425968;"><span>Productos</span><strong style="color:#17384a;">${data.items.length}</strong></div>
             <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;color:#425968;"><span>Subtotal</span><strong style="color:#17384a;">${money(data.subtotal)}</strong></div>
-            <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;color:#425968;"><span>IVA</span><strong style="color:#17384a;">${money(data.iva)}</strong></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;color:#425968;"><span>${data.incluirImpuestos ? 'IVA' : 'IVA no aplicado'}</span><strong style="color:#17384a;">${money(data.iva)}</strong></div>
             <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0 0;margin-top:8px;border-top:1px dashed #c7dbe5;color:#17384a;font-size:18px;font-weight:800;"><span>Total</span><strong>${money(data.total)}</strong></div>
           </div>
         </div>
@@ -429,7 +445,7 @@ function buildPdfMarkup(data){
                 <th style="padding:12px 10px;text-align:center;font-size:12px;">Cantidad</th>
                 <th style="padding:12px 10px;text-align:right;font-size:12px;">Precio</th>
                 <th style="padding:12px 10px;text-align:right;font-size:12px;">Subtotal</th>
-                <th style="padding:12px 10px;text-align:right;font-size:12px;">IVA</th>
+                <th style="padding:12px 10px;text-align:right;font-size:12px;">${data.incluirImpuestos ? 'IVA' : 'IVA'}</th>
                 <th style="padding:12px 10px;text-align:right;font-size:12px;">Total</th>
               </tr>
             </thead>
@@ -603,7 +619,7 @@ async function exportStyledPdf(){
         ['Modo de precio', data.modoPrecio.charAt(0).toUpperCase() + data.modoPrecio.slice(1)],
         ['Productos', String(data.items.length)],
         ['Subtotal', money(data.subtotal)],
-        ['IVA', money(data.iva)],
+        [data.incluirImpuestos ? 'IVA' : 'IVA no aplicado', money(data.iva)],
       ];
       let ry = y + 13;
       doc.setFontSize(8.5);
@@ -662,7 +678,7 @@ async function exportStyledPdf(){
       const cantidad = Number(item.cantidad || 0);
       const precio = Number(item.precio || 0);
       const subtotal = cantidad * precio;
-      const ivaMonto = subtotal * Number(item.iva || 0);
+      const ivaMonto = data.incluirImpuestos ? subtotal * Number(item.iva || 0) : 0;
       const totalLinea = subtotal + ivaMonto;
       const productLines = doc.splitTextToSize(item.producto || 'Producto', cols[1] - 4);
       const meta = [item.codigo, item.tipo].filter(Boolean).join(' · ');
@@ -751,6 +767,7 @@ function attachEvents(){
   document.getElementById('exportarBtn').addEventListener('click', exportJSON);
   document.getElementById('imprimirBtn').addEventListener('click', exportStyledPdf);
   document.querySelectorAll('.toggle-btn').forEach(btn => btn.addEventListener('click', () => setModoPrecio(btn.dataset.modo)));
+  if (sinImpuestosInput) sinImpuestosInput.addEventListener('change', (e) => setIncluirImpuestos(!e.target.checked));
 }
 
 syncDepartamentoPlaceholder();

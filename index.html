@@ -125,12 +125,23 @@
           </label>
         </div>
 
-        <div class="price-mode">
-          <span>Modo de precio</span>
-          <div class="toggle-group">
-            <button class="toggle-btn active" data-modo="venta" type="button">Venta</button>
-            <button class="toggle-btn" data-modo="mayoreo" type="button">Mayoreo</button>
+        <div class="pricing-controls">
+          <div class="price-mode">
+            <span>Modo de precio</span>
+            <div class="toggle-group">
+              <button class="toggle-btn active" data-modo="venta" type="button">Venta</button>
+              <button class="toggle-btn" data-modo="mayoreo" type="button">Mayoreo</button>
+            </div>
           </div>
+
+          <label class="tax-toggle" for="sinImpuestos">
+            <div>
+              <strong>Cotizar sin impuestos</strong>
+              <small>Úsalo para clientes que no requieren factura.</small>
+            </div>
+            <input type="checkbox" id="sinImpuestos" />
+            <span class="tax-toggle-slider" aria-hidden="true"></span>
+          </label>
         </div>
 
         <div class="quote-list" id="cotizacionItems">
@@ -142,7 +153,7 @@
 
         <div class="totals-box">
           <div><span>Subtotal</span><strong id="subtotal">$0.00</strong></div>
-          <div><span>IVA (16%)</span><strong id="iva">$0.00</strong></div>
+          <div><span id="ivaLabel">IVA</span><strong id="iva">$0.00</strong></div>
           <div class="grand-total"><span>Total</span><strong id="total">$0.00</strong></div>
         </div>
 
